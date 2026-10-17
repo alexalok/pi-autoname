@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 
 import {
   DEFAULT_CONFIG,
+  getDialogueOptions,
   getInitialDialogue,
   getNamingLanguageInstruction,
   getRecentDialogue,
@@ -248,9 +249,10 @@ async function completeWithinBudget(
   }
 }
 
-function extractDialogue(ctx: ExtensionContext, mode: NamingMode): DialoguePart[] {
+function extractDialogue(ctx: ExtensionContext, mode: NamingMode, config: AutonameConfig): DialoguePart[] {
   const branch = ctx.sessionManager.getBranch();
-  return mode === "initial" ? getInitialDialogue(branch) : getRecentDialogue(branch);
+  const options = getDialogueOptions(config.includeCustomMessages);
+  return mode === "initial" ? getInitialDialogue(branch, options) : getRecentDialogue(branch, 6, options);
 }
 
 function fallbackName(parts: DialoguePart[]): NamingResult | undefined {
@@ -271,10 +273,10 @@ async function generateName(
   signal: AbortSignal,
   fallbackLocale: string | undefined,
 ): Promise<NamingResult | undefined> {
-  const parts = extractDialogue(ctx, mode);
+  const config = loadConfig();
+  const parts = extractDialogue(ctx, mode, config);
   if (parts.length === 0) return undefined;
 
-  const config = loadConfig();
   const prompt = buildNamingPrompt(parts, currentName, fallbackLocale);
   const startedAt = Date.now();
 

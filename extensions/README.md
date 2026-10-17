@@ -34,16 +34,17 @@ export default function extension(pi: ExtensionAPI): void
 - `detectDominantUserLanguage(parts)` — 仅按用户自然语言消息判定中文、英文、日文或韩文主语言
 - `getNamingLanguageInstruction(parts, fallbackLocale)` — 生成显式语言提示；无可判定用户语言时才采用可选 locale 兜底
 - `normalizeConfig(input)` — 配置规范化
+- `getDialogueOptions(includeCustomMessages)` — 按 `includeCustomMessages` 生成 `custom_message` 过滤选项（关闭 / 全部 / `customType` 白名单）
 - `redactSensitiveText(text)` — 敏感信息脱敏
 - `isHighQualityName(name)` — 名称质量检查
 - `blockText(content)` — 从消息 content 抽纯文本
 - `smartFallbackName(text)` — 降级命名生成
 - `parseRenameMarker(data)` — 解析 `pi-autoname-state` entry 的 marker
-- `getFirstDialogue(branch)` / `getRecentDialogue(branch)` / `getInitialDialogue(branch)` — 对话提取
+- `getFirstDialogue(branch, options)` / `getRecentDialogue(branch, max, options)` / `getInitialDialogue(branch, options)` — 对话提取；启用时匹配的 `custom_message` 以 user 身份按时间顺序参与
 
 常量：`DEFAULT_CONFIG`、`MIN_NAME_LENGTH`、`MAX_NAME_LENGTH`、`RAW_SLICE_RE`、`SENTENCE_END_RE`、`MIN_COOLDOWN_MINUTES`、`MAX_COOLDOWN_MINUTES`、`SENSITIVE_PATTERNS`
 
-类型：`AutonameConfig`、`RenameMarker`
+类型：`AutonameConfig`、`DialogueOptions`、`RenameMarker`
 
 ## 测试
 

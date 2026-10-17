@@ -8,6 +8,7 @@ import {
   MIN_COOLDOWN_MINUTES,
   blockText,
   detectDominantUserLanguage,
+  getDialogueOptions,
   getFirstDialogue,
   getInitialDialogue,
   getNamingLanguageInstruction,
@@ -32,6 +33,21 @@ describe("configuration and privacy", () => {
     assert.equal(normalizeConfig({ cooldownMinutes: Number.NaN }).cooldownMinutes, DEFAULT_CONFIG.cooldownMinutes);
     assert.equal(normalizeConfig({ fallbackModels: "bad" }).fallbackModels?.length, 0);
     assert.equal(normalizeConfig({ respectManualName: true }).respectManualName, true);
+  });
+
+  it("normalizes includeCustomMessages to false, true, or a trimmed whitelist", () => {
+    assert.equal(normalizeConfig({}).includeCustomMessages, false);
+    assert.equal(normalizeConfig({ includeCustomMessages: false }).includeCustomMessages, false);
+    assert.equal(normalizeConfig({ includeCustomMessages: true }).includeCustomMessages, true);
+    assert.deepEqual(
+      normalizeConfig({ includeCustomMessages: [" pi-channels-alert ", "", 3, "other"] }).includeCustomMessages,
+      ["pi-channels-alert", "other"],
+    );
+    assert.equal(normalizeConfig({ includeCustomMessages: [] }).includeCustomMessages, false);
+    assert.equal(normalizeConfig({ includeCustomMessages: [""] }).includeCustomMessages, false);
+    assert.equal(normalizeConfig({ includeCustomMessages: "pi-channels-alert" }).includeCustomMessages, false);
+    assert.equal(normalizeConfig({ includeCustomMessages: 1 }).includeCustomMessages, false);
+    assert.equal(normalizeConfig({ includeCustomMessages: { a: 1 } }).includeCustomMessages, false);
   });
 
   it("redacts common secrets without changing clean text", () => {
@@ -158,6 +174,113 @@ describe("dialogue extraction", () => {
     assert.deepEqual(getInitialDialogue(branch.slice(0, 2)), [
       { role: "user", text: "first request" },
       { role: "assistant", text: "first reply" },
+    ]);
+  });
+});
+
+describe("custom message extraction", () => {
+  const alert = (text: unknown, customType = "pi-channels-alert", display = true) => ({
+    type: "custom_message",
+    customType,
+    content: text,
+    display,
+  });
+  const user = (text: string) => ({ type: "message", message: { role: "user", content: text } });
+  const assistant = (text: string) => ({
+    type: "message",
+    message: { role: "assistant", content: [{ type: "text", text }] },
+  });
+  const toolResult = (text: string) => ({
+    type: "message",
+    message: { role: "toolResult", content: [{ type: "text", text }] },
+  });
+
+  const mixed = [
+    user("start worker"),
+    alert("Assignment: migrate billing exports"),
+    assistant("on it"),
+    toolResult("ls output"),
+    alert([{ type: "image" }, { type: "text", text: "Decision: use CSV" }], "pi-channels-alert", false),
+    alert("unrelated status ping", "other-extension"),
+    { type: "custom", customType: "pi-channels-alert", data: { text: "never context" } },
+  ];
+  const whitelist = getDialogueOptions(["pi-channels-alert"]);
+
+  it("builds no filter when disabled", () => {
+    assert.deepEqual(getDialogueOptions(false), {});
+    assert.deepEqual(getDialogueOptions(undefined), {});
+    assert.deepEqual(getDialogueOptions([]), {});
+    assert.equal(getDialogueOptions(true).includeCustomType?.("anything"), true);
+    assert.equal(whitelist.includeCustomType?.("pi-channels-alert"), true);
+    assert.equal(whitelist.includeCustomType?.("other-extension"), false);
+  });
+
+  it("ignores custom messages when disabled", () => {
+    assert.deepEqual(getRecentDialogue(mixed), [
+      { role: "user", text: "start worker" },
+      { role: "assistant", text: "on it" },
+    ]);
+    assert.deepEqual(getRecentDialogue(mixed, 6, getDialogueOptions(false)), getRecentDialogue(mixed));
+  });
+
+  it("includes whitelisted custom messages as user parts in chronological order", () => {
+    assert.deepEqual(getRecentDialogue(mixed, 6, whitelist), [
+      { role: "user", text: "start worker" },
+      { role: "user", text: "Assignment: migrate billing exports" },
+      { role: "assistant", text: "on it" },
+      { role: "user", text: "Decision: use CSV" },
+    ]);
+  });
+
+  it("includes every custom message type when set to all, but never plain custom entries", () => {
+    assert.deepEqual(getRecentDialogue(mixed, 6, getDialogueOptions(true)), [
+      { role: "user", text: "start worker" },
+      { role: "user", text: "Assignment: migrate billing exports" },
+      { role: "assistant", text: "on it" },
+      { role: "user", text: "Decision: use CSV" },
+      { role: "user", text: "unrelated status ping" },
+    ]);
+  });
+
+  it("counts custom parts toward the recent window cap", () => {
+    const branch = [
+      user("u1"),
+      assistant("a1"),
+      alert("c1"),
+      user("u2"),
+      alert("c2"),
+      assistant("a2"),
+      alert("c3"),
+    ];
+    assert.deepEqual(getRecentDialogue(branch, 6, whitelist).map((part) => part.text), ["a1", "c1", "u2", "c2", "a2", "c3"]);
+    assert.deepEqual(getRecentDialogue(branch, 3, whitelist).map((part) => part.text), ["c2", "a2", "c3"]);
+  });
+
+  it("skips custom messages without text content", () => {
+    assert.deepEqual(getRecentDialogue([alert([{ type: "image" }]), alert(undefined)], 6, whitelist), []);
+  });
+
+  it("lets a custom message qualify as the first user turn", () => {
+    const branch = [alert("Assignment: audit retries"), assistant("auditing"), user("later")];
+    assert.deepEqual(getFirstDialogue(branch, whitelist), { firstUser: "Assignment: audit retries", firstAssistant: "auditing" });
+    assert.deepEqual(getFirstDialogue(branch), { firstUser: "later", firstAssistant: undefined });
+    assert.deepEqual(getInitialDialogue(branch.slice(0, 2), whitelist), [
+      { role: "user", text: "Assignment: audit retries" },
+      { role: "assistant", text: "auditing" },
+    ]);
+    assert.deepEqual(getInitialDialogue(branch.slice(0, 2)), []);
+  });
+
+  it("counts custom parts toward the initial-dialogue history check", () => {
+    const branch = [user("first"), assistant("reply"), alert("Assignment: new task")];
+    assert.deepEqual(getInitialDialogue(branch), [
+      { role: "user", text: "first" },
+      { role: "assistant", text: "reply" },
+    ]);
+    assert.deepEqual(getInitialDialogue(branch, whitelist), [
+      { role: "user", text: "first" },
+      { role: "assistant", text: "reply" },
+      { role: "user", text: "Assignment: new task" },
     ]);
   });
 });
