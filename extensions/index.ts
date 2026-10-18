@@ -39,18 +39,11 @@ let debugEnabled = false;
 let configCache: AutonameConfig | undefined;
 let configMtime = 0;
 
-function safeJson(value: unknown): string {
-  try {
-    return value instanceof Error ? value.message : JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function debugLog(...args: unknown[]) {
+// Only fixed event messages and explicitly selected diagnostic metadata belong here.
+function debugLog(message: string, details?: Record<string, boolean | number | string | undefined>) {
   if (!debugEnabled) return;
   const time = new Date().toISOString().split("T")[1]?.replace("Z", "") ?? "";
-  console.error(`[pi-autoname ${time}] ${args.map((arg) => (typeof arg === "string" ? arg : safeJson(arg))).join(" ")}`);
+  console.error(`[pi-autoname ${time}] ${message}${details ? ` ${JSON.stringify(details)}` : ""}`);
 }
 
 function loadConfig(): AutonameConfig {
@@ -67,8 +60,8 @@ function loadConfig(): AutonameConfig {
         configMtime = mtime;
       }
     }
-  } catch (error) {
-    console.error(`[pi-autoname] failed to load config; using defaults: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
+    console.error("[pi-autoname] failed to load config; using defaults");
     configCache = { ...DEFAULT_CONFIG };
     configMtime = 0;
   }
@@ -88,13 +81,13 @@ function buildModelChain(config: AutonameConfig, ctx: ExtensionContext): unknown
   const models: unknown[] = [];
   const seen = new Set<string>();
 
-  const add = (model: any, source: string) => {
+  const add = (model: any, source: "configured" | "fallback" | "session") => {
     if (!model) return;
     const key = `${model.provider}/${model.id}`;
     if (seen.has(key)) return;
     seen.add(key);
     models.push(model);
-    debugLog(`added ${source} model: ${key}`);
+    debugLog("model candidate added", { source });
   };
 
   if (config.model) add(resolveModel(config.model, ctx), "configured");
@@ -150,8 +143,8 @@ export function readSessionFileDiagnostics(sessionFile: string | undefined): Ses
     }
 
     return { sessionFile, latestSessionName, latestRenameMarker, parseErrors };
-  } catch (error) {
-    debugLog(`session diagnostics failed: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
+    debugLog("session diagnostics failed");
     return undefined;
   }
 }
@@ -278,9 +271,9 @@ async function generateName(
       const response = await completeWithinBudget(model, prompt, ctx, signal, remainingBudget);
       const name = response && extractCleanName(response);
       if (name) return { name, source: "ai" };
-    } catch (error) {
+    } catch {
       if (signal.aborted) return undefined;
-      debugLog(`model failed: ${error instanceof Error ? error.message : String(error)}`);
+      debugLog("model attempt failed");
     }
   }
 
@@ -308,7 +301,16 @@ export default function extension(pi: ExtensionAPI): void {
       debug: debugLog,
     });
     controller.restore(getLastRenameMarker(ctx), pi.getSessionName());
-    if (debugEnabled) debugLog("session diagnostics", readSessionFileDiagnostics(ctx.sessionManager.getSessionFile()));
+    if (debugEnabled) {
+      const diagnostics = readSessionFileDiagnostics(ctx.sessionManager.getSessionFile());
+      debugLog("session diagnostics", {
+        readable: diagnostics !== undefined,
+        hasSessionName: Boolean(diagnostics?.latestSessionName),
+        hasRenameMarker: diagnostics?.latestRenameMarker !== undefined,
+        markerKind: diagnostics?.latestRenameMarker?.kind,
+        parseErrors: diagnostics?.parseErrors,
+      });
+    }
   });
 
   pi.on("session_info_changed", async (event) => {

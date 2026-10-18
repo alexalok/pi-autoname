@@ -25,7 +25,7 @@ export default function extension(pi: ExtensionAPI): void
 - `/autoname`（手动命令）— 显式触发一次命名，即使 `respectManualName` 已启用
 
 命名导出：
-- `readSessionFileDiagnostics(sessionFile)` — 读当前 session JSONL，返回最新的 `session_info` 和 `pi-autoname-state` marker。**按文件行序取最后一个**，不区分 branch；Pi 会话是树结构，`.jsonl` 含所有 branch 的 entry，所以诊断里的“最新名”可能来自非活跃分支，仅用于 debug 排障。运行时命名决策以 `getBranch()` 为准，不用这个 helper。
+- `readSessionFileDiagnostics(sessionFile)` — 读当前 session JSONL，返回最新的 `session_info` 和 `pi-autoname-state` marker。**按文件行序取最后一个**，不区分 branch；Pi 会话是树结构，`.jsonl` 含所有 branch 的 entry，所以诊断里的“最新名”可能来自非活跃分支，仅用于排障。该导出仍返回名称和路径，调用者不得将原始返回对象直接写入日志；扩展 debug 只输出可读性、名称／marker 是否存在、marker 种类和解析错误数。运行时命名决策以 `getBranch()` 为准，不用这个 helper。
 - `SessionFileDiagnostics` — 返回值类型
 
 ### lib.ts（命名导出）

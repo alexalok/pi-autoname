@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep debug diagnostics without logging session names, conversation text, session file paths, or raw exception messages.
+
 - Redact quoted JSON credential fields, including escaped string values, before naming requests and prevent detected credentials from becoming local fallback titles.
 - Allow naming with keyless providers by calling Pi's configured model runtime through `ctx.modelRegistry.streamSimple().result()` instead of requiring an API key and using the global compat API. Verified offline against Pi 1.3.0.
 

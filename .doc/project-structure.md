@@ -20,10 +20,10 @@ npm tarball（发布包）只包含 TypeScript、公开文档、许可证和元�
 
 ## 开发与测试
 
-- 仅使用 TypeScript（类型脚本）；项目不使用 Python（编程语言）或 Bun（运行时）。
+- 扩展实现使用 TypeScript（类型脚本），离线宿主检查使用 Node.js 的 `.mjs` 脚本；不增加 Python 或 Bun 依赖。
 - `npm test` 调用 Node.js（JavaScript 运行时）内置的 `node:test`（测试 API）。
 - Pi 在扩展运行时提供 `@earendil-works/pi-ai` 和 `@earendil-works/pi-coding-agent` peer dependency（对等依赖）；项目不声明其他运行或开发依赖。
 
 ## 本地忽略文件
 
-`.gitignore`（Git 忽略规则）排除早期试验文件、Python 缓存和 `node_modules/`；它们不参与运行或发布。
+`.gitignore`（Git 忽略规则）排除 `node_modules/`、`dist/`、`*.tsbuildinfo`、`.diwu/` 和 `.dteam/`。发布内容由 `package.json#files` 白名单决定。

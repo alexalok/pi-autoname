@@ -138,7 +138,7 @@ Periodic naming compares recent context with the current title. The model is ask
 
 ## 🔐 Privacy note
 
-`pi-autoname` sends a short, recent conversation excerpt to the selected naming model. Before sending, it redacts common secret patterns such as API keys, bearer tokens, AWS access keys, private keys, `*_TOKEN` / `*_SECRET` / `*_PASSWORD` environment assignments, and quoted JSON credential fields (including escaped string values). Redaction is pattern-based and cannot guarantee detection of every sensitive value or encoding. If the AI call fails and the user text contained a detected secret, the local fallback name is skipped to avoid turning secrets into session names.
+`pi-autoname` sends a short, recent conversation excerpt to the selected naming model. Before sending, it redacts common secret patterns such as API keys, bearer tokens, AWS access keys, private keys, `*_TOKEN` / `*_SECRET` / `*_PASSWORD` environment assignments, and quoted JSON credential fields (including escaped string values). Redaction is pattern-based and cannot guarantee detection of every sensitive value or encoding. If the AI call fails and the user text contained a detected secret, the local fallback name is skipped to avoid turning secrets into session names. Debug logs contain status events and selected diagnostic metadata only; session names, conversation text, file paths, and raw provider/configuration errors are not logged.
 
 ## 🌍 Language support
 

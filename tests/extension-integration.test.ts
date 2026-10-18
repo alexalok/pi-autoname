@@ -10,13 +10,15 @@ async function setup(t: any, options: {
   user?: string;
   name?: string;
   config?: Record<string, unknown>;
+  rawConfig?: string;
+  diagnostics?: boolean;
   complete?: (model: any, context: any, options: any) => Promise<any>;
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), "pi-autoname-test-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const configDir = join(home, ".pi", "agent");
   mkdirSync(configDir, { recursive: true });
-  writeFileSync(join(configDir, "pi-autoname.json"), JSON.stringify({ ...DEFAULT_CONFIG, ...options.config }));
+  writeFileSync(join(configDir, "pi-autoname.json"), options.rawConfig ?? JSON.stringify({ ...DEFAULT_CONFIG, ...options.config }));
   const previousHome = process.env.HOME;
   process.env.HOME = home;
   let extension: any;
@@ -36,6 +38,12 @@ async function setup(t: any, options: {
     { type: "message", message: { role: "user", content: options.user ?? "修复数据库连接" } },
     { type: "message", message: { role: "assistant", content: "开始检查" } },
   ];
+  const sessionFile = options.diagnostics ? join(home, "private-session-path.jsonl") : undefined;
+  if (sessionFile) writeFileSync(sessionFile, [
+    JSON.stringify({ type: "session_info", name: "private-diagnostic-title" }),
+    JSON.stringify({ type: "custom", customType: "pi-autoname-state", data: { name: "private-marker-title", source: "ai", timestamp: 1 } }),
+    "malformed-private-diagnostic-content",
+  ].join("\n"));
   const model = { provider: "fixture", id: "keyless" };
   const ctx = {
     model,
@@ -47,7 +55,7 @@ async function setup(t: any, options: {
         return options.complete ? options.complete(model, context, requestOptions) : { content: [{ type: "text", text: "数据库连接修复" }] };
       } }),
     },
-    sessionManager: { getBranch: () => branch, getSessionFile: () => undefined },
+    sessionManager: { getBranch: () => branch, getSessionFile: () => sessionFile },
     ui: { notify: (...args: any[]) => notifications.push(args) },
   };
   const pi = {
@@ -70,6 +78,7 @@ async function setup(t: any, options: {
   return {
     calls, markers, notifications, ctx,
     get name() { return name; },
+    externalName: async (next: string) => { name = next; await handlers.get("session_info_changed")({ name: next }, ctx); },
     manual: () => commands.get("autoname").handler("", ctx),
     settled: async () => {
       handlers.get("agent_settled")({}, ctx);
@@ -81,6 +90,70 @@ async function setup(t: any, options: {
 }
 
 describe("extension naming integration", () => {
+  it("keeps debug diagnostics useful without logging names, paths, content or provider errors", async t => {
+    const logs: string[] = [];
+    t.mock.method(console, "error", (...args: unknown[]) => logs.push(JSON.stringify(args)));
+    let resolveFirst: any;
+    let attempts = 0;
+    const test = await setup(t, {
+      name: "private-existing-title", user: "private-user-content",
+      config: { debug: true }, diagnostics: true,
+      complete: async () => {
+        attempts++;
+        if (attempts === 1) return new Promise(resolve => { resolveFirst = resolve; });
+        if (attempts === 4) throw new Error("private-provider-error private-existing-title");
+        return { content: [{ type: "text", text: "private-generated-title" }] };
+      },
+    });
+    const first = test.manual();
+    await test.manual();
+    resolveFirst({ content: [{ type: "text", text: "private-stale-title" }] });
+    await first;
+    await test.manual(); // unchanged title
+    await test.externalName("private-manual-title");
+    await test.manual(); // provider failure
+    test.ctx.sessionManager.getSessionFile = () => "/private-missing-session/path.jsonl";
+    await test.reload();
+    test.ctx.sessionManager.getBranch = () => { throw new Error("private-controller-error"); };
+    await test.manual();
+    const output = logs.join("\n");
+    assert.doesNotMatch(output, /private-|malformed-/);
+    assert.match(output, /session diagnostics/);
+    assert.match(output, /parseErrors.*1/);
+    assert.match(output, /hasSessionName.*true/);
+    assert.match(output, /markerKind.*ai/);
+    assert.match(output, /skip stale naming result/);
+    assert.match(output, /session name updated/);
+    assert.match(output, /session name already current/);
+    assert.match(output, /manual session name observed/);
+    assert.match(output, /model.*failed/);
+    assert.match(output, /session diagnostics failed/);
+    assert.match(output, /readable.*false/);
+    assert.match(output, /naming request failed/);
+  });
+
+  it("keeps debug output disabled by default on success and failure", async t => {
+    const logs: unknown[] = [];
+    t.mock.method(console, "error", (...args: unknown[]) => logs.push(args));
+    let fail = false;
+    const test = await setup(t, { complete: async () => {
+      if (fail) throw new Error("private-provider-error");
+      return { content: [{ type: "text", text: "private-generated-title" }] };
+    } });
+    await test.manual();
+    fail = true;
+    await test.manual();
+    assert.deepEqual(logs, []);
+  });
+
+  it("does not log malformed configuration contents on load failure", async t => {
+    const logs: string[] = [];
+    t.mock.method(console, "error", (...args: unknown[]) => logs.push(JSON.stringify(args)));
+    await setup(t, { rawConfig: 'private-config-secret' });
+    assert.match(logs.join("\n"), /failed to load config/);
+    assert.doesNotMatch(logs.join("\n"), /private-|pi-autoname-test-/);
+  });
+
   it("automatically names through the runtime without requiring an API key", async t => {
     const test = await setup(t);
     await test.settled();
