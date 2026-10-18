@@ -5,7 +5,6 @@
  * name after a cooldown, and provides /autoname for an explicit refresh.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { complete } from "@earendil-works/pi-ai/compat";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -218,9 +217,6 @@ async function completeWithinBudget(
   remainingBudgetMs: number,
 ): Promise<any | undefined> {
   const deadline = Date.now() + remainingBudgetMs;
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok || !auth.apiKey) return undefined;
-
   const timeoutMs = Math.min(AI_ATTEMPT_TIMEOUT_MS, deadline - Date.now());
   if (timeoutMs <= 0 || signal.aborted) return undefined;
 
@@ -229,22 +225,18 @@ async function completeWithinBudget(
     () => controller.abort(new Error("AI naming attempt timed out")),
     timeoutMs,
   );
-  const abort = () => controller.abort(signal.reason);
-  if (signal.aborted) abort();
-  else signal.addEventListener("abort", abort, { once: true });
 
   try {
-    return await complete(
+    return await ctx.modelRegistry.streamSimple(
       model,
       {
         systemPrompt: "You produce concise semantic labels for coding sessions.",
         messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
       },
-      { apiKey: auth.apiKey, headers: auth.headers, env: auth.env, maxTokens: MAX_NAME_TOKENS, signal: controller.signal },
-    );
+      { maxTokens: MAX_NAME_TOKENS, signal: AbortSignal.any([signal, controller.signal]) },
+    ).result();
   } finally {
     clearTimeout(timeout);
-    signal.removeEventListener("abort", abort);
   }
 }
 

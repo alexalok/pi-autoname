@@ -20,6 +20,9 @@ export const MIN_COOLDOWN_MINUTES = 1;
 export const MAX_COOLDOWN_MINUTES = 24 * 60;
 
 export const SENSITIVE_PATTERNS: Array<{ re: RegExp; replacement: string }> = [
+  // Quoted JSON/YAML keys need their closing quote consumed before the colon.
+  // Match the whole quoted value, including escaped quotes and whitespace.
+  { re: /((["'])(?:api[_-]?key|token|secret|password|[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD))\2\s*:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,}\]]+)/gi, replacement: '$1"[REDACTED]"' },
   { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, replacement: "[REDACTED_PRIVATE_KEY]" },
   { re: /\bAKIA[0-9A-Z]{16}\b/g, replacement: "[REDACTED_AWS_KEY]" },
   { re: /\bsk-[A-Za-z0-9_-]{20,}\b/g, replacement: "[REDACTED_API_KEY]" },

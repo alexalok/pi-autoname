@@ -138,7 +138,7 @@ Periodic naming compares recent context with the current title. The model is ask
 
 ## 🔐 Privacy note
 
-`pi-autoname` sends a short, recent conversation excerpt to the selected naming model. Before sending, it redacts common secret patterns such as API keys, bearer tokens, AWS access keys, private keys, and `*_TOKEN` / `*_SECRET` / `*_PASSWORD` environment assignments. If the AI call fails and the user text contained a detected secret, the local fallback name is skipped to avoid turning secrets into session names.
+`pi-autoname` sends a short, recent conversation excerpt to the selected naming model. Before sending, it redacts common secret patterns such as API keys, bearer tokens, AWS access keys, private keys, `*_TOKEN` / `*_SECRET` / `*_PASSWORD` environment assignments, and quoted JSON credential fields (including escaped string values). Redaction is pattern-based and cannot guarantee detection of every sensitive value or encoding. If the AI call fails and the user text contained a detected secret, the local fallback name is skipped to avoid turning secrets into session names.
 
 ## 🌍 Language support
 
@@ -156,7 +156,15 @@ The repository has no development dependency. With Node.js 22.6 or later (Node.j
 npm test
 ```
 
-Pi provides the two declared peer dependencies at extension runtime.
+Pi provides the two declared peer dependencies at extension runtime. The current host verification baseline is Pi **1.3.0**. Naming calls use `ctx.modelRegistry.streamSimple().result()` so Pi resolves provider authentication, including providers that do not require an API key.
+
+An additional offline check uses the installed Pi loader, runner, session manager, and model runtime with an in-memory test provider:
+
+```bash
+PI_HOST_ROOT="$(npm root -g)/@earendil-works/pi-coding-agent" node tests/pi-host-smoke.mjs
+```
+
+This checks automatic/manual naming, reload state, redaction, and failure fallback without using personal credentials or external models. See [compatibility evidence and limits](doc/Pi版本兼容性与影响分析.md).
 
 ## License
 
