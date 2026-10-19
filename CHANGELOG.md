@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-19
+
 ### Added
 
-- New opt-in `includeCustomMessages` setting (`false` by default) to include `custom_message` entries as context in the naming prompt. Set it to `true` to include all of them, or to an array of `customType` values to whitelist specific ones.
+- New opt-in `includeCustomMessages` setting (`false` by default) to include `custom_message` entries as context in the naming prompt. Set it to `true` to include all of them, or to an array of `customType` values to whitelist specific ones. Thanks to [@lmondada](https://github.com/lmondada) for [PR #8](https://github.com/ssdiwu/pi-autoname/pull/8).
 
 ### Fixed
 

@@ -180,6 +180,10 @@ PI_HOST_ROOT="$(npm root -g)/@earendil-works/pi-coding-agent" node tests/pi-host
 
 This checks automatic/manual naming, reload state, redaction, and failure fallback without using personal credentials or external models. See [compatibility evidence and limits](doc/Pi版本兼容性与影响分析.md).
 
+## Contributors
+
+Thanks to [Luca Mondada (@lmondada)](https://github.com/lmondada) for contributing opt-in custom-message context through [PR #8](https://github.com/ssdiwu/pi-autoname/pull/8). His `includeCustomMessages` setting lets extension-injected assignments inform session names, with support for selecting specific `customType` values.
+
 ## License
 
 MIT
