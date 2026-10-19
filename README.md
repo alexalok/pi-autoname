@@ -41,6 +41,7 @@ Config file is **auto-generated** on first use at `~/.pi/agent/pi-autoname.json`
   "enabled": true,
   "model": "",
   "fallbackModels": [],
+  "language": "auto",
   "cooldownMinutes": 10,
   "debug": false,
   "respectManualName": false,
@@ -51,8 +52,9 @@ Config file is **auto-generated** on first use at `~/.pi/agent/pi-autoname.json`
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | boolean | `true` | Set to `false` to disable AI naming |
-| `model` | string | _(session model)_ | Primary model (`provider/modelId`). Empty = use session model |
-| `fallbackModels` | string[] | `[]` | Additional models to try if primary fails |
+| `model` | string | _(session model)_ | Primary model (`provider/modelId` or `provider/modelId:thinking`). Empty = use session model |
+| `fallbackModels` | string[] | `[]` | Additional models to try if primary fails; the same `:thinking` suffix is supported |
+| `language` | string | `"auto"` | BCP 47 locale such as `zh-CN`, `zh-TW`, or `en` for AI names; explicit values override detection and the Pi locale |
 | `cooldownMinutes` | number | `10` | Minutes between periodic re-names |
 | `debug` | boolean | `false` | Enable debug logging |
 | `respectManualName` | boolean | `false` | When `false` (default), a `/name` change gets one cooldown window before automatic naming resumes. Set to `true` to keep a user-issued `/name` until `/autoname` is explicitly run. |
@@ -72,6 +74,8 @@ Config file is **auto-generated** on first use at `~/.pi/agent/pi-autoname.json`
 ```
 
 This tries models in order: `MiniMax-M2.7` → `mimo-v2-omni` → session model.
+
+For example, `"model": "xai/grok-4.6:low"` selects the model with Pi’s unified `reasoning: "low"` option. Supported suffixes are `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; unknown suffixes remain part of the model ID. Authentication, provider routing, cancellation, and the shared 30-second budget still belong to the same host runtime path.
 
 ### Example: Name worker sessions from injected assignments
 
@@ -156,7 +160,9 @@ Periodic naming compares recent context with the current title. The model is ask
 
 ## 🌍 Language support
 
-Names use the dominant natural language in user messages: the first user message for initial naming, and recent user messages for periodic or manual naming. Assistant responses, paths, URLs, and code snippets do not determine the language. A user message that contains any Han / Kana / Hangul characters is treated as a CJK-language message, so English noise co-injected into the same turn (system warnings, error logs, tool output) cannot outweigh the user's CJK intent; only purely-Latin user messages contribute to the English score. When no natural-language user text is available, pi-autoname optionally uses the active [pi-di18n](https://github.com/ssdiwu/pi-di18n) `/lang` locale; pi-di18n is never required.
+Set `"language": "zh-CN"` (or another BCP 47 locale) to explicitly choose the language of AI names. Invalid values fall back to `"auto"`. This setting is a model instruction; local fallback extraction cannot translate the user’s text.
+
+With the default `"language": "auto"`, names use the dominant natural language in user messages: the first user message for initial naming, and recent user messages for periodic or manual naming. Assistant responses, paths, URLs, and code snippets do not determine the language. A user message that contains any Han / Kana / Hangul characters is treated as a CJK-language message, so English noise co-injected into the same turn (system warnings, error logs, tool output) cannot outweigh the user's CJK intent; only purely-Latin user messages contribute to the English score. When no natural-language user text is available, pi-autoname optionally uses the active [pi-di18n](https://github.com/ssdiwu/pi-di18n) `/lang` locale; pi-di18n is never required.
 
 ## 🔗 Related
 
@@ -180,7 +186,11 @@ PI_HOST_ROOT="$(npm root -g)/@earendil-works/pi-coding-agent" node tests/pi-host
 
 This checks automatic/manual naming, reload state, redaction, and failure fallback without using personal credentials or external models. See [compatibility evidence and limits](doc/Pi版本兼容性与影响分析.md).
 
+AI replies use the first nonempty text line, or the last nonempty thinking line when no text was returned, and share the same 30-character limit as local fallback labels. The quality gate checks length and basic sentence patterns; it cannot guarantee that a model’s chosen line is semantically useful.
+
 ## Contributors
+
+Thanks to [@git-geeky](https://github.com/git-geeky) for the name-quality fixes in [PR #2](https://github.com/ssdiwu/pi-autoname/pull/2), [@LoveSnowEx](https://github.com/LoveSnowEx) for the lazy-session diagnostic fix in [PR #3](https://github.com/ssdiwu/pi-autoname/pull/3), and [@chuxubank](https://github.com/chuxubank) for thinking-suffix support in [PR #7](https://github.com/ssdiwu/pi-autoname/pull/7). These contributions are adapted to Pi’s current host runtime.
 
 Thanks to [Luca Mondada (@lmondada)](https://github.com/lmondada) for contributing opt-in custom-message context through [PR #8](https://github.com/ssdiwu/pi-autoname/pull/8). His `includeCustomMessages` setting lets extension-injected assignments inform session names, with support for selecting specific `customType` values.
 

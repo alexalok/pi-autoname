@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { DEFAULT_CONFIG } from "../extensions/lib.ts";
 
@@ -91,6 +91,78 @@ async function setup(t: any, options: {
 }
 
 describe("extension naming integration", () => {
+  it("treats a not-yet-created session file as normal during start and reload", async t => {
+    const logs: string[] = [];
+    t.mock.method(console, "error", (...args: unknown[]) => logs.push(JSON.stringify(args)));
+    const test = await setup(t, { config: { debug: true } });
+    test.ctx.sessionManager.getSessionFile = () => join(tmpdir(), "pi-autoname-not-created", "session.jsonl");
+    await test.reload();
+    assert.doesNotMatch(logs.join("\n"), /session diagnostics failed/);
+    await test.settled();
+    assert.equal(test.name, "数据库连接修复");
+  });
+
+  it("extracts concise labels from multiline text and reasoning-only replies", async t => {
+    for (const content of [
+      [{ type: "text", text: "Session naming quality\nThis explanation should not become part of the name." }],
+      [{ type: "thinking", thinking: "Consider the task and choose a concise label.\nDatabase connection retry" }],
+    ]) {
+      const test = await setup(t, { complete: async () => ({ content }) });
+      await test.manual();
+      assert.equal(test.name, content[0].type === "text" ? "Session naming quality" : "Database connection retry");
+      assert.equal(test.markers[0].source, "ai");
+    }
+  });
+
+  it("keeps long clean local fallbacks inside the shared quality limit", async t => {
+    const test = await setup(t, {
+      user: "Refactor database connection retry behavior and improve timeout handling",
+      complete: async () => { throw new Error("fixture failure"); },
+    });
+    await test.manual();
+    assert.equal(test.name, "Refactor database connection");
+    assert.equal(test.markers[0].source, "fallback");
+  });
+
+  it("routes configured thinking suffixes through the host without discarding model colons", async t => {
+    const test = await setup(t, {
+      config: { model: "fixture/primary:low", fallbackModels: ["fixture/backup:high"] },
+      complete: async model => {
+        if (model.id === "primary") throw new Error("fixture failure");
+        return { content: [{ type: "text", text: "回退模型命名" }] };
+      },
+    });
+    await test.manual();
+    assert.deepEqual(test.calls.map(call => [call.model.id, call.options.reasoning]), [["primary", "low"], ["backup", "high"]]);
+    const colon = await setup(t, { config: { model: "fixture/model:custom" } });
+    await colon.manual();
+    assert.equal(colon.calls[0].model.id, "model:custom");
+    assert.equal(colon.calls[0].options.reasoning, undefined);
+  });
+
+  it("deduplicates identical model efforts while preserving distinct configured fallbacks", async t => {
+    const test = await setup(t, {
+      config: { model: "fixture/shared:low", fallbackModels: ["fixture/shared:low", "fixture/shared:high"] },
+      complete: async (_model, _context, options) => {
+        if (options.reasoning === "low") throw new Error("fixture failure");
+        return { content: [{ type: "text", text: "回退级别命名" }] };
+      },
+    });
+    await test.manual();
+    assert.deepEqual(test.calls.map(call => [call.model.id, call.options.reasoning]), [["shared", "low"], ["shared", "high"]]);
+  });
+
+  it("lets explicit naming language override English user text and keeps auto as default", async t => {
+    const test = await setup(t, { user: "Refactor database connections", config: { language: "zh-CN" } });
+    await test.manual();
+    const prompt = test.calls[0].context.messages[0].content[0].text;
+    assert.match(prompt, /zh-CN/);
+    assert.match(prompt, /explicit/i);
+    const automatic = await setup(t, { user: "Refactor database connections" });
+    await automatic.manual();
+    assert.match(automatic.calls[0].context.messages[0].content[0].text, /English/);
+  });
+
   it("keeps debug diagnostics useful without logging names, paths, content or provider errors", async t => {
     const logs: string[] = [];
     t.mock.method(console, "error", (...args: unknown[]) => logs.push(JSON.stringify(args)));
@@ -113,7 +185,8 @@ describe("extension naming integration", () => {
     await test.manual(); // unchanged title
     await test.externalName("private-manual-title");
     await test.manual(); // provider failure
-    test.ctx.sessionManager.getSessionFile = () => "/private-missing-session/path.jsonl";
+    const diagnosticFile = test.ctx.sessionManager.getSessionFile();
+    test.ctx.sessionManager.getSessionFile = () => dirname(diagnosticFile); // EISDIR remains a real IO error.
     await test.reload();
     test.ctx.sessionManager.getBranch = () => { throw new Error("private-controller-error"); };
     await test.manual();

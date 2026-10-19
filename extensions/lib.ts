@@ -101,7 +101,10 @@ function localeLanguageName(locale: string): string {
 }
 
 /** Builds an explicit language requirement for the naming model. */
-export function getNamingLanguageInstruction(parts: DialoguePart[], fallbackLocale?: string): string {
+export function getNamingLanguageInstruction(parts: DialoguePart[], fallbackLocale?: string, explicitLanguage = "auto"): string {
+  if (explicitLanguage !== "auto") {
+    return `Write the label in ${localeLanguageName(explicitLanguage)} (locale: ${explicitLanguage}). This explicit language setting overrides user-message language detection and the Pi locale.`;
+  }
   const language = detectDominantUserLanguage(parts);
   if (language === "Chinese") return "Write the label in Chinese, preserving the Simplified or Traditional script used by the user. This language is determined from user messages only.";
   if (language) return `Write the label in ${language}. This language is determined from user messages only.`;
@@ -113,6 +116,8 @@ export interface AutonameConfig {
   enabled?: boolean;
   model?: string;
   fallbackModels?: string[];
+  /** BCP 47 locale for AI labels; auto keeps user-message detection. */
+  language?: string;
   cooldownMinutes?: number;
   debug?: boolean;
   /**
@@ -142,11 +147,39 @@ export const DEFAULT_CONFIG: Required<AutonameConfig> = {
   enabled: true,
   model: "",
   fallbackModels: [],
+  language: "auto",
   cooldownMinutes: 10,
   debug: false,
   respectManualName: false,
   includeCustomMessages: false,
 };
+
+export const THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type NamingThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/** Unknown colon suffixes remain part of the model ID. */
+export function parseModelRef(modelName: string): { provider: string; id: string; thinking?: NamingThinkingLevel } | undefined {
+  const value = modelName.trim();
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return undefined;
+  const provider = value.slice(0, slash);
+  const id = value.slice(slash + 1);
+  const colon = id.lastIndexOf(":");
+  const suffix = id.slice(colon + 1);
+  if (colon > 0 && THINKING_LEVELS.some(level => level === suffix)) {
+    return { provider, id: id.slice(0, colon), thinking: suffix as NamingThinkingLevel };
+  }
+  return { provider, id };
+}
+
+function normalizeLanguage(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.trim().toLowerCase() === "auto") return "auto";
+  try {
+    return Intl.getCanonicalLocales(value.trim())[0] ?? "auto";
+  } catch {
+    return "auto";
+  }
+}
 
 function normalizeIncludeCustomMessages(value: unknown): boolean | string[] {
   if (value === true) return true;
@@ -185,6 +218,7 @@ export function normalizeConfig(input: unknown): AutonameConfig {
   return {
     enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_CONFIG.enabled,
     model: typeof raw.model === "string" ? raw.model.trim() : DEFAULT_CONFIG.model,
+    language: normalizeLanguage(raw.language),
     fallbackModels: Array.isArray(raw.fallbackModels)
       ? raw.fallbackModels
           .filter((item): item is string => typeof item === "string")
@@ -244,15 +278,22 @@ export function smartFallbackName(text: string): string {
   const sentenceEnd = s.match(/[.!?。！？]/);
   if (sentenceEnd && sentenceEnd.index! < 60) {
     s = s.slice(0, sentenceEnd.index! + 1);
-  } else if (s.length > 45) {
-    const cut = s.lastIndexOf(" ", 45);
-    s = cut > 10 ? s.slice(0, cut) : s.slice(0, 42);
   }
 
   s = s.replace(/(?:吗|呢|吧|啊|呀|哦|嘛|的|了|着|过)[\s,，.。]*$/, "").trim();
   s = s.replace(/[。！？!?.…]+\s*$/, "").trim();
 
-  return s || text.slice(0, 40).replace(/\n/g, " ").trim();
+  return limitNameLength(s || text.replace(/\n/g, " ").trim());
+}
+
+/** Share the quality limit across AI extraction and local fallback. */
+export function limitNameLength(text: string): string {
+  if (text.length <= MAX_NAME_LENGTH) return text;
+  let prefix = text.slice(0, MAX_NAME_LENGTH);
+  // Do not cut an astral character between its UTF-16 surrogate halves.
+  prefix = prefix.replace(/[\uD800-\uDBFF]$/, "");
+  const space = prefix.lastIndexOf(" ");
+  return (space > MAX_NAME_LENGTH / 2 ? prefix.slice(0, space) : prefix).trim();
 }
 
 /** A persisted pi-autoname state marker — one of three flavors. */

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Explicit `language` locale for AI names, with `auto` as the default and invalid locales safely returning to automatic detection. Addresses #4.
+- Optional `:minimal` / `:low` / `:medium` / `:high` / `:xhigh` / `:max` naming-model suffixes, adapted from @chuxubank’s PR #7 to the current host `streamSimple` API.
+
+### Fixed
+
+- Treat not-yet-created session files as normal, while retaining safe diagnostics for other IO errors. Adapted from @LoveSnowEx’s PR #3.
+- Extract a concise line from multiline model replies and keep AI/local fallback names within the same quality limit. Adapted from @git-geeky’s PR #2.
+
 ## [0.7.0] - 2026-10-19
 
 ### Added
