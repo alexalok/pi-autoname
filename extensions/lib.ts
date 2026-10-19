@@ -20,6 +20,9 @@ export const MIN_COOLDOWN_MINUTES = 1;
 export const MAX_COOLDOWN_MINUTES = 24 * 60;
 
 export const SENSITIVE_PATTERNS: Array<{ re: RegExp; replacement: string }> = [
+  // Quoted JSON/YAML keys need their closing quote consumed before the colon.
+  // Match the whole quoted value, including escaped quotes and whitespace.
+  { re: /((["'])(?:api[_-]?key|token|secret|password|[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD))\2\s*:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,}\]]+)/gi, replacement: '$1"[REDACTED]"' },
   { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, replacement: "[REDACTED_PRIVATE_KEY]" },
   { re: /\bAKIA[0-9A-Z]{16}\b/g, replacement: "[REDACTED_AWS_KEY]" },
   { re: /\bsk-[A-Za-z0-9_-]{20,}\b/g, replacement: "[REDACTED_API_KEY]" },
@@ -372,7 +375,8 @@ export function getInitialDialogue(branch: any[], options: DialogueOptions = {})
   for (let index = branch.length - 1; index >= 0 && messageCount <= 2; index -= 1) {
     const entry = branch[index];
     const role = entry?.message?.role;
-    if (role === "user" || role === "assistant" || isIncludedCustomMessage(entry, options)) messageCount += 1;
+    const hasCustomText = isIncludedCustomMessage(entry, options) && Boolean(blockText(entry.content));
+    if (role === "user" || role === "assistant" || hasCustomText) messageCount += 1;
   }
 
   if (messageCount > 2) return recent;

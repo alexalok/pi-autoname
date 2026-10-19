@@ -6,7 +6,7 @@ pi-autoname 的核心逻辑所在。
 
 | 文件 | 职责 |
 |------|------|
-| `index.ts` | Pi Extension（扩展）入口：注册生命周期事件、`/autoname` 命令、模型调用、命名请求总预算，以及当前 session JSONL（会话日志）的调试诊断 |
+| `index.ts` | Pi Extension（扩展）入口：注册生命周期事件、`/autoname` 命令、宿主 `modelRegistry.streamSimple().result()` 模型调用、命名请求总预算，以及当前 session JSONL（会话日志）的调试诊断 |
 | `lib.ts` | 纯工具函数：用户消息语言检测、配置规范化、敏感信息脱敏、名称质量检查、尾部对话提取、降级命名 |
 
 ## 关键导出
@@ -25,7 +25,7 @@ export default function extension(pi: ExtensionAPI): void
 - `/autoname`（手动命令）— 显式触发一次命名，即使 `respectManualName` 已启用
 
 命名导出：
-- `readSessionFileDiagnostics(sessionFile)` — 读当前 session JSONL，返回最新的 `session_info` 和 `pi-autoname-state` marker。**按文件行序取最后一个**，不区分 branch；Pi 会话是树结构，`.jsonl` 含所有 branch 的 entry，所以诊断里的“最新名”可能来自非活跃分支，仅用于 debug 排障。运行时命名决策以 `getBranch()` 为准，不用这个 helper。
+- `readSessionFileDiagnostics(sessionFile)` — 读当前 session JSONL，返回最新的 `session_info` 和 `pi-autoname-state` marker。**按文件行序取最后一个**，不区分 branch；Pi 会话是树结构，`.jsonl` 含所有 branch 的 entry，所以诊断里的“最新名”可能来自非活跃分支，仅用于排障。该导出仍返回名称和路径，调用者不得将原始返回对象直接写入日志；扩展 debug 只输出可读性、名称／marker 是否存在、marker 种类和解析错误数。运行时命名决策以 `getBranch()` 为准，不用这个 helper。
 - `SessionFileDiagnostics` — 返回值类型
 
 ### lib.ts（命名导出）
@@ -56,4 +56,6 @@ npm test
 
 测试文件位于：
 - `../tests/pi-autoname.test.ts` — `lib.ts` 纯函数
-- `../tests/extension-lifecycle.test.ts` — `index.ts` 生命周期、冷却时间、手工改名检测、session 文件诊断
+- `../tests/extension-lifecycle.test.ts` — `controller.ts` 生命周期、冷却与取消
+- `../tests/extension-integration.test.ts` — `index.ts` 入口、最终请求脱敏、无 Key 调用、降级及恢复
+- `../tests/pi-host-smoke.mjs` — 本机 Pi 加载器、运行时与内存会话的离线检查，运行方法见 `../doc/Pi版本兼容性与影响分析.md`

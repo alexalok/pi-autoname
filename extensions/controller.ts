@@ -1,4 +1,4 @@
-import type { AutonameConfig, DialoguePart, RenameMarker } from "./lib.ts";
+import type { AutonameConfig, RenameMarker } from "./lib.ts";
 
 export type NamingState = "unnamed" | "named" | "fallback";
 export type NamingSource = "ai" | "fallback";
@@ -48,7 +48,7 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
 
   const applyResult = (result: NamingResult, sequence: number): NamingResult | undefined => {
     if (sequence !== requestSequence) {
-      runtime.debug(`skip stale naming result: ${result.name}`);
+      runtime.debug("skip stale naming result");
       return undefined;
     }
 
@@ -63,9 +63,9 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
     manualName = undefined;
     if (name !== currentName) {
       runtime.setSessionName(name);
-      runtime.debug(`session name updated: ${currentName ?? "(none)"} -> ${name}`);
+      runtime.debug("session name updated");
     } else {
-      runtime.debug(`session name already current: ${name}`);
+      runtime.debug("session name already current");
     }
 
     runtime.appendMarker({ name, source: result.source, timestamp: now });
@@ -90,9 +90,9 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
         signal: controller.signal,
       });
       return result ? applyResult(result, sequence) : undefined;
-    } catch (error) {
+    } catch {
       if (!controller.signal.aborted) {
-        runtime.debug(`naming request failed: ${error instanceof Error ? error.message : String(error)}`);
+        runtime.debug("naming request failed");
       }
       return undefined;
     } finally {
@@ -133,7 +133,7 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
       lastRenameTime = runtime.now();
       state = "named";
       runtime.appendMarker({ event: "user_rename", name: normalized, timestamp: lastRenameTime });
-      runtime.debug(`manual session name observed: ${normalized}`);
+      runtime.debug("manual session name observed");
     },
 
     async handleSettled() {

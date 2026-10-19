@@ -58,6 +58,20 @@ describe("configuration and privacy", () => {
     assert.match(result.text, /Bearer \[REDACTED\]/);
   });
 
+  it("redacts quoted JSON fields and their complete escaped values", () => {
+    for (const key of ["api_key", "api-key", "token", "secret", "password", "DATABASE_PASSWORD", "ACCESS_TOKEN"]) {
+      for (const value of ["demo123", "two words", 'escaped "quote" and \\ slash', "line\nbreak"]) {
+        const input = JSON.stringify({ [key]: value, topic: "database" });
+        const result = redactSensitiveText(input);
+        assert.equal(result.redacted, true, input);
+        assert.deepEqual(JSON.parse(result.text), { [key]: "[REDACTED]", topic: "database" });
+      }
+    }
+    assert.equal(redactSensitiveText("{'password': 'two words'}").text, "{'password': \"[REDACTED]\"}");
+    const clean = '{"tokenCount":12,"passwordPolicy":"strict","topic":"database"}';
+    assert.deepEqual(redactSensitiveText(clean), { text: clean, redacted: false });
+  });
+
   it("redacts private keys, AWS keys, and OpenAI-style keys", () => {
     const result = redactSensitiveText([
       "-----BEGIN RSA PRIVATE KEY-----\\nsecret\\n-----END RSA PRIVATE KEY-----",
@@ -269,6 +283,17 @@ describe("custom message extraction", () => {
       { role: "assistant", text: "auditing" },
     ]);
     assert.deepEqual(getInitialDialogue(branch.slice(0, 2)), []);
+  });
+
+  it("does not count textless custom messages as initial dialogue history", () => {
+    for (const content of [undefined, "", [{ type: "image" }]]) {
+      const ignored = alert(content);
+      assert.deepEqual(getInitialDialogue([ignored, ignored, assistant("waiting")], whitelist), []);
+      assert.deepEqual(getInitialDialogue([ignored, ignored, user("waiting")], whitelist), []);
+      assert.deepEqual(getInitialDialogue([ignored, user("first"), ignored, assistant("reply")], whitelist), [
+        { role: "user", text: "first" }, { role: "assistant", text: "reply" },
+      ]);
+    }
   });
 
   it("counts custom parts toward the initial-dialogue history check", () => {
