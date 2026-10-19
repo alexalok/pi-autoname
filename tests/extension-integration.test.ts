@@ -12,6 +12,7 @@ async function setup(t: any, options: {
   config?: Record<string, unknown>;
   rawConfig?: string;
   diagnostics?: boolean;
+  branch?: any[];
   complete?: (model: any, context: any, options: any) => Promise<any>;
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), "pi-autoname-test-"));
@@ -34,7 +35,7 @@ async function setup(t: any, options: {
   const notifications: any[] = [];
   const calls: any[] = [];
   let name = options.name;
-  const branch: any[] = [
+  const branch: any[] = options.branch ?? [
     { type: "message", message: { role: "user", content: options.user ?? "修复数据库连接" } },
     { type: "message", message: { role: "assistant", content: "开始检查" } },
   ];
@@ -152,6 +153,46 @@ describe("extension naming integration", () => {
     await setup(t, { rawConfig: 'private-config-secret' });
     assert.match(logs.join("\n"), /failed to load config/);
     assert.doesNotMatch(logs.join("\n"), /private-|pi-autoname-test-/);
+  });
+
+  it("redacts hidden custom messages and never uses their detected secrets as fallback titles", async t => {
+    for (const fail of [false, true]) {
+      const branch = [
+        { type: "custom_message", customType: "worker", display: false, content: '{"password":"custom-secret-fixture"}' },
+        { type: "message", message: { role: "assistant", content: "开始检查" } },
+      ];
+      const test = await setup(t, {
+        branch, config: { includeCustomMessages: ["worker"] },
+        complete: async () => {
+          if (fail) throw new Error("fixture failure");
+          return { content: [{ type: "text", text: "配置安全检查" }] };
+        },
+      });
+      await test.settled();
+      assert.equal(test.calls.length, 1);
+      const prompt = test.calls[0].context.messages[0].content[0].text;
+      assert.match(prompt, /REDACTED/);
+      assert.doesNotMatch(prompt, /custom-secret-fixture/);
+      assert.equal(test.name, fail ? undefined : "配置安全检查");
+      if (fail) assert.deepEqual(test.markers, []);
+    }
+  });
+
+  it("waits for textual user input when custom messages only contain images", async t => {
+    const image = { type: "custom_message", customType: "worker", display: false, content: [{ type: "image", data: "fixture", mimeType: "image/png" }] };
+    const branch = [image, image, { type: "message", message: { role: "assistant", content: "waiting" } }];
+    const test = await setup(t, { branch, config: { includeCustomMessages: ["worker"] } });
+    await test.settled();
+    assert.equal(test.calls.length, 0);
+    assert.equal(test.name, undefined);
+    assert.deepEqual(test.markers, []);
+    branch.push({ type: "message", message: { role: "user", content: "修复数据库连接" } });
+    await test.settled();
+    assert.equal(test.calls.length, 0, "a new textual user turn still needs its first assistant response");
+    branch.push({ type: "message", message: { role: "assistant", content: "开始检查" } });
+    await test.settled();
+    assert.equal(test.calls.length, 1);
+    assert.equal(test.name, "数据库连接修复");
   });
 
   it("automatically names through the runtime without requiring an API key", async t => {

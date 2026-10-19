@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New opt-in `includeCustomMessages` setting (`false` by default) to include `custom_message` entries as context in the naming prompt. Set it to `true` to include all of them, or to an array of `customType` values to whitelist specific ones.
+
 ### Fixed
+
+- Ignore textless custom messages when deciding whether an initial dialogue already has a history, so image-only or empty injected messages cannot trigger naming from an assistant-only excerpt.
 
 - Keep debug diagnostics without logging session names, conversation text, session file paths, or raw exception messages.
 

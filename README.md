@@ -43,7 +43,8 @@ Config file is **auto-generated** on first use at `~/.pi/agent/pi-autoname.json`
   "fallbackModels": [],
   "cooldownMinutes": 10,
   "debug": false,
-  "respectManualName": false
+  "respectManualName": false,
+  "includeCustomMessages": false
 }
 ```
 
@@ -55,6 +56,7 @@ Config file is **auto-generated** on first use at `~/.pi/agent/pi-autoname.json`
 | `cooldownMinutes` | number | `10` | Minutes between periodic re-names |
 | `debug` | boolean | `false` | Enable debug logging |
 | `respectManualName` | boolean | `false` | When `false` (default), a `/name` change gets one cooldown window before automatic naming resumes. Set to `true` to keep a user-issued `/name` until `/autoname` is explicitly run. |
+| `includeCustomMessages` | boolean \| string[] | `false` | Include `custom_message` entries as context in the naming prompt. `false` ignores them, `true` includes all of them, and an array whitelists them by `customType`. Use this when messages injected by pi extensions carry valuable information for naming. |
 
 ### Example: Model fallback chain
 
@@ -70,6 +72,18 @@ Config file is **auto-generated** on first use at `~/.pi/agent/pi-autoname.json`
 ```
 
 This tries models in order: `MiniMax-M2.7` → `mimo-v2-omni` → session model.
+
+### Example: Name worker sessions from injected assignments
+
+When a pi extension is used to coordinate agents, relevant context information may be injected into the chat history as a `custom_message` (e.g. via `pi.sendMessage(..., { customType: "my-pi-orchestrator" })`) rather than as a typed user message. By default, custom messages are ignored by `pi-autoname`. By whitelisting the relevant message types, we can ensure that the inferred name takes the relevant context into account:
+
+```json
+{
+  "includeCustomMessages": ["my-pi-orchestrator"]
+}
+```
+
+Matching entries with text are treated as user turns: they keep their chronological position in the recent-context window, count toward it, can serve as the first user turn, and take part in language detection. Entries without text do not count toward the recent window or the initial-history check. The entry's `display` flag is ignored, because hidden messages still reach the model.
 
 ## 🏗️ How it works
 
@@ -138,7 +152,7 @@ Periodic naming compares recent context with the current title. The model is ask
 
 ## 🔐 Privacy note
 
-`pi-autoname` sends a short, recent conversation excerpt to the selected naming model. Before sending, it redacts common secret patterns such as API keys, bearer tokens, AWS access keys, private keys, `*_TOKEN` / `*_SECRET` / `*_PASSWORD` environment assignments, and quoted JSON credential fields (including escaped string values). Redaction is pattern-based and cannot guarantee detection of every sensitive value or encoding. If the AI call fails and the user text contained a detected secret, the local fallback name is skipped to avoid turning secrets into session names. Debug logs contain status events and selected diagnostic metadata only; session names, conversation text, file paths, and raw provider/configuration errors are not logged.
+`pi-autoname` sends a short, recent conversation excerpt to the selected naming model. With `includeCustomMessages` enabled, that excerpt also contains the matching extension-injected messages, including messages with `display: false`. Before sending, it redacts common secret patterns such as API keys, bearer tokens, AWS access keys, private keys, `*_TOKEN` / `*_SECRET` / `*_PASSWORD` environment assignments, and quoted JSON credential fields (including escaped string values). Redaction is pattern-based and cannot guarantee detection of every sensitive value or encoding. If the AI call fails and the user text contained a detected secret, the local fallback name is skipped to avoid turning secrets into session names. Debug logs contain status events and selected diagnostic metadata only; session names, conversation text, file paths, and raw provider/configuration errors are not logged.
 
 ## 🌍 Language support
 

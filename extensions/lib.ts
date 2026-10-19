@@ -128,6 +128,14 @@ export interface AutonameConfig {
    * want to force a re-name from the current conversation.
    */
   respectManualName?: boolean;
+  /**
+   * Which `custom_message` session entries (extension-injected messages that
+   * participate in LLM context) are treated as user input for naming.
+   * `false` (default) ignores them, `true` includes all of them, and a string
+   * array whitelists entries by `customType`. Normalized to `false`, `true`,
+   * or a non-empty array of trimmed strings.
+   */
+  includeCustomMessages?: boolean | string[];
 }
 
 export const DEFAULT_CONFIG: Required<AutonameConfig> = {
@@ -137,7 +145,33 @@ export const DEFAULT_CONFIG: Required<AutonameConfig> = {
   cooldownMinutes: 10,
   debug: false,
   respectManualName: false,
+  includeCustomMessages: false,
 };
+
+function normalizeIncludeCustomMessages(value: unknown): boolean | string[] {
+  if (value === true) return true;
+  if (!Array.isArray(value)) return false;
+  const whitelist = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return whitelist.length > 0 ? whitelist : false;
+}
+
+export interface DialogueOptions {
+  /** Returns true when a `custom_message` with this `customType` is naming input. */
+  includeCustomType?: (customType: string) => boolean;
+}
+
+/** Builds the extraction options for a normalized `includeCustomMessages` value. */
+export function getDialogueOptions(includeCustomMessages: AutonameConfig["includeCustomMessages"]): DialogueOptions {
+  if (includeCustomMessages === true) return { includeCustomType: () => true };
+  if (Array.isArray(includeCustomMessages) && includeCustomMessages.length > 0) {
+    const whitelist = new Set(includeCustomMessages);
+    return { includeCustomType: (customType) => whitelist.has(customType) };
+  }
+  return {};
+}
 
 export function normalizeConfig(input: unknown): AutonameConfig {
   if (!input || typeof input !== "object") return { ...DEFAULT_CONFIG };
@@ -161,6 +195,7 @@ export function normalizeConfig(input: unknown): AutonameConfig {
     debug: typeof raw.debug === "boolean" ? raw.debug : DEFAULT_CONFIG.debug,
     respectManualName:
       typeof raw.respectManualName === "boolean" ? raw.respectManualName : DEFAULT_CONFIG.respectManualName,
+    includeCustomMessages: normalizeIncludeCustomMessages(raw.includeCustomMessages),
   };
 }
 
@@ -268,11 +303,26 @@ export function parseRenameMarker(data: unknown): RenameMarker | undefined {
   return undefined;
 }
 
-export function getFirstDialogue(branch: any[]) {
+/**
+ * `custom_message` entries keep their content at the top level and are always
+ * part of LLM context regardless of their TUI-only `display` flag.
+ */
+function isIncludedCustomMessage(entry: any, options: DialogueOptions): boolean {
+  if (entry?.type !== "custom_message" || !options.includeCustomType) return false;
+  return options.includeCustomType(typeof entry.customType === "string" ? entry.customType : "");
+}
+
+export function getFirstDialogue(branch: any[], options: DialogueOptions = {}) {
   let firstUser: string | undefined;
   let firstAssistant: string | undefined;
 
   for (const entry of branch) {
+    if (!firstUser && isIncludedCustomMessage(entry, options)) {
+      const text = blockText(entry.content);
+      if (text) firstUser = text;
+      continue;
+    }
+
     if (entry?.type === "message" && entry.message) {
       const role = entry.message.role;
       const text = blockText(entry.message.content);
@@ -293,11 +343,16 @@ export function getFirstDialogue(branch: any[]) {
   return { firstUser, firstAssistant };
 }
 
-export function getRecentDialogue(branch: any[], maxMessages = 6): DialoguePart[] {
+export function getRecentDialogue(branch: any[], maxMessages = 6, options: DialogueOptions = {}): DialoguePart[] {
   const items: DialoguePart[] = [];
 
   for (let index = branch.length - 1; index >= 0 && items.length < maxMessages; index -= 1) {
     const entry = branch[index];
+    if (isIncludedCustomMessage(entry, options)) {
+      const text = blockText(entry.content);
+      if (text) items.push({ role: "user", text });
+      continue;
+    }
     if (entry?.type !== "message" || !entry.message) continue;
 
     const role = entry.message.role;
@@ -314,17 +369,19 @@ export function getRecentDialogue(branch: any[], maxMessages = 6): DialoguePart[
  * Old sessions without an autoname marker should be named from their current
  * topic, while a new session keeps the first-dialogue behavior.
  */
-export function getInitialDialogue(branch: any[]): DialoguePart[] {
-  const recent = getRecentDialogue(branch);
+export function getInitialDialogue(branch: any[], options: DialogueOptions = {}): DialoguePart[] {
+  const recent = getRecentDialogue(branch, 6, options);
   let messageCount = 0;
   for (let index = branch.length - 1; index >= 0 && messageCount <= 2; index -= 1) {
-    const role = branch[index]?.message?.role;
-    if (role === "user" || role === "assistant") messageCount += 1;
+    const entry = branch[index];
+    const role = entry?.message?.role;
+    const hasCustomText = isIncludedCustomMessage(entry, options) && Boolean(blockText(entry.content));
+    if (role === "user" || role === "assistant" || hasCustomText) messageCount += 1;
   }
 
   if (messageCount > 2) return recent;
 
-  const { firstUser, firstAssistant } = getFirstDialogue(branch);
+  const { firstUser, firstAssistant } = getFirstDialogue(branch, options);
   if (!firstUser || !firstAssistant) return [];
   return [
     { role: "user", text: firstUser },
