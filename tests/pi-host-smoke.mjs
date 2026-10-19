@@ -1,6 +1,6 @@
 // Optional offline smoke test against an installed Pi host; no user config or models are used.
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -27,6 +27,21 @@ try {
   runtime.registerNativeProvider(faux.provider);
   const registry = new ModelRegistry(runtime);
   const model = faux.getModel();
+  const requests = [];
+  const streamSimple = registry.streamSimple.bind(registry);
+  registry.streamSimple = (selected, context, options) => {
+    requests.push({ selected, context, options });
+    return streamSimple(selected, context, options);
+  };
+  const configDir = join(home, ".pi", "agent");
+  mkdirSync(configDir, { recursive: true });
+  const configPath = join(configDir, "pi-autoname.json");
+  let configClock = Date.now();
+  const writeConfig = config => {
+    writeFileSync(configPath, JSON.stringify(config));
+    configClock += 1000;
+    utimesSync(configPath, configClock / 1000, configClock / 1000);
+  };
   let selectedModel = model;
   const auth = await registry.getApiKeyAndHeaders(model);
   assert.equal(auth.ok, true);
@@ -86,6 +101,22 @@ try {
   faux.setResponses([() => { throw new Error("offline fixture model failure"); }]);
   await runner.getCommand("autoname").handler("", runner.createCommandContext());
   assert.equal(session.getSessionName(), "连接故障诊断");
+  writeConfig({ model: `${model.provider}/${model.id}:low`, language: "zh-CN" });
+  user("Check model thinking and explicit naming language");
+  faux.setResponses([fauxAssistantMessage("命名配置验证\nAdditional explanation must be ignored")]);
+  await runner.getCommand("autoname").handler("", runner.createCommandContext());
+  assert.equal(session.getSessionName(), "命名配置验证");
+  assert.equal(requests.at(-1).options.reasoning, "low");
+  assert.equal(requests.at(-1).selected.id, model.id);
+  assert.match(requests.at(-1).context.messages[0].content[0].text, /zh-CN/);
+  faux.setResponses([fauxAssistantMessage([{ type: "thinking", thinking: "Consider a concise title.\nRuntime naming verification" }])]);
+  await runner.getCommand("autoname").handler("", runner.createCommandContext());
+  assert.equal(session.getSessionName(), "Runtime naming verification");
+  writeConfig({});
+  user("Refactor database connection retry behavior and improve timeout handling");
+  faux.setResponses([() => { throw new Error("offline fixture model failure"); }]);
+  await runner.getCommand("autoname").handler("", runner.createCommandContext());
+  assert.equal(session.getSessionName(), "Refactor database connection");
   let routes = 0;
   runtime.registerVirtualModel({
     provider: "autoname-router-fixture", id: "auto", name: "Offline router",
@@ -104,7 +135,7 @@ try {
   assert.equal(session.getSessionName(), "虚拟模型命名验证");
   assert.equal(routes, 1);
   assert.deepEqual(errors, []);
-  console.log("PASS: actual Pi loader, runner, in-memory session and keyless ModelRuntime: automatic, manual, reload, redaction, failure fallback, secret fallback rejection, native virtual-model routing");
+  console.log("PASS: actual Pi loader, runner, in-memory session and keyless ModelRuntime: automatic, manual, reload, redaction, failure fallback, secret fallback rejection, native virtual-model routing, explicit language, thinking suffix, multiline/reasoning-only extraction, bounded local fallback");
 } finally {
   await runner?.emit({ type: "session_shutdown" });
   if (oldHome === undefined) delete process.env.HOME;
