@@ -8,6 +8,7 @@ pi-autoname 的核心逻辑所在。
 |------|------|
 | `index.ts` | Pi Extension（扩展）入口：注册生命周期事件、`/autoname` 命令、宿主 `modelRegistry.streamSimple().result()` 模型调用、命名请求总预算，以及当前 session JSONL（会话日志）的调试诊断 |
 | `lib.ts` | 纯工具函数：用户消息语言检测、配置规范化、敏感信息脱敏、名称质量检查、尾部对话提取、降级命名 |
+| `title-spinner.ts` | TUI-only `π - marker - title` animation; independent agent/naming activity, safe title formatting, cancellation and timer cleanup |
 
 ## 关键导出
 
@@ -19,10 +20,11 @@ export default function extension(pi: ExtensionAPI): void
 
 注册以下能力：
 - `session_start`（会话启动）— 恢复命名状态，并在 debug 模式记录 session JSONL 诊断
-- `session_info_changed`（会话名称变更）— 立即识别 `/name`，取消后台命名及待完成的收口修订，并写入手工名称 marker
+- `session_info_changed`（会话名称变更）— 立即识别 `/name`，取消后台命名及待完成的收口修订，写入手工名称 marker，并刷新终端标题
 - `message_end`（消息完成）— 首个有效文本请求／回复对触发后台初次命名；该事件早于宿主持久化，因此使用包含当前回复的快照，不等待工具执行完毕
-- `agent_settled`（代理完全稳定）— 对初始名称进行一次近期上下文修订，随后沿用周期冷却；没有提前命名时仍可在此首次命名，不阻塞主代理收口
-- `session_shutdown`（会话关闭）— 取消未完成命名请求
+- `before_agent_start` / `agent_start` — start the terminal-title marker in TUI mode
+- `agent_settled`（代理完全稳定）— 对初始名称进行一次近期上下文修订，随后沿用周期冷却；没有提前命名时仍可在此首次命名，不阻塞主代理收口；clear agent activity while independently tracking any naming request
+- `session_shutdown`（会话关闭）— 取消未完成命名请求，dispose the title spinner and its abort listeners/timers
 - `/autoname`（手动命令）— 显式触发一次命名，即使 `respectManualName` 已启用
 
 命名导出：
@@ -63,3 +65,5 @@ npm test
 - `../tests/extension-integration.test.ts` — `index.ts` 入口、最终请求脱敏、无 Key 调用、降级及恢复
 - `../tests/pi-host-smoke.mjs` — 本机 Pi 加载器、运行时与内存会话的离线检查，运行方法见 `../doc/Pi版本兼容性与影响分析.md`
 - `../tests/pi-early-naming-smoke.mjs` — 真实 AgentSession 与等待型测试工具，验证任务进行中产生初始名称、收口后再修订
+- `../tests/title-spinner.test.ts` — title animation, overlapping activity, cancellation and stale callbacks
+- `../tests/pi-tui-smoke.py` — actual offline TUI title output and `/reload`/Escape lifecycle
