@@ -5,6 +5,18 @@ All notable changes to `pi-autoname` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Fork update — 2026-10-22
+
+### Added
+
+- `jack-o-mania` GitHub fork with a default-on `titleSpinner` setting. TUI titles animate as `π - ⠋ - title` during agent work and naming inference, and return to `π - title` when idle.
+- Independent tracking of agent and naming work, immediate manual-name refresh, working-directory fallback, control-character sanitization, and timer/abort-listener cleanup on cancellation and session shutdown/reload.
+- Unit and extension-integration coverage for animation, overlap, stale results, configuration, non-TUI silence, and unchanged naming state. Extended the offline Pi host check for the title lifecycle and hoisted host dependencies.
+
+### Preserved
+
+- Upstream naming/model/reasoning settings, manual-name protection, privacy checks, and session-state format. No extra model calls are made for the animation; no npm release is published by this fork.
+
 ## [Unreleased]
 
 ### Added

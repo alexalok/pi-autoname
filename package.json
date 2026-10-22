@@ -1,7 +1,7 @@
 {
   "name": "pi-autoname",
   "version": "0.7.0",
-  "description": "AI-powered session naming for Pi — generate meaningful, semantic session names via LLM",
+  "description": "AI-powered session naming for Pi with an animated terminal-title progress marker — jack-o-mania fork",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -15,11 +15,11 @@
   "author": "ssdiwu",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ssdiwu/pi-autoname.git"
+    "url": "git+https://github.com/jack-o-mania/pi-autoname.git"
   },
-  "homepage": "https://github.com/ssdiwu/pi-autoname#readme",
+  "homepage": "https://github.com/jack-o-mania/pi-autoname#readme",
   "bugs": {
-    "url": "https://github.com/ssdiwu/pi-autoname/issues"
+    "url": "https://github.com/jack-o-mania/pi-autoname/issues"
   },
   "files": [
     "index.ts",
