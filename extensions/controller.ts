@@ -1,4 +1,4 @@
-import type { AutonameConfig, RenameMarker } from "./lib.ts";
+import type { AutonameConfig, DialoguePart, RenameMarker } from "./lib.ts";
 
 export type NamingState = "unnamed" | "named" | "fallback";
 export type NamingSource = "ai" | "fallback";
@@ -8,6 +8,8 @@ export interface NamingRequest {
   mode: NamingMode;
   currentName?: string;
   signal: AbortSignal;
+  /** Snapshot including the assistant response before Pi persists message_end. */
+  dialogue?: DialoguePart[];
 }
 
 export interface NamingResult {
@@ -19,7 +21,7 @@ export interface NamingControllerRuntime {
   now(): number;
   getConfig(): AutonameConfig;
   getCurrentName(): string | undefined;
-  appendMarker(marker: { name: string; source: NamingSource; timestamp: number } | { event: "user_rename"; name: string; timestamp: number }): void;
+  appendMarker(marker: { name: string; source: NamingSource; timestamp: number; provisional?: boolean } | { event: "user_rename"; name: string; timestamp: number }): void;
   setSessionName(name: string): void;
   generateName(request: NamingRequest): Promise<NamingResult | undefined>;
   debug(message: string): void;
@@ -28,6 +30,7 @@ export interface NamingControllerRuntime {
 export interface NamingController {
   restore(marker: RenameMarker | undefined, existingName: string | undefined): void;
   handleSessionNameChange(name: string | undefined): void;
+  handleResponse(dialogue: DialoguePart[]): Promise<void>;
   handleSettled(): Promise<void>;
   renameManually(): Promise<NamingResult | undefined>;
   shutdown(): void;
@@ -45,8 +48,10 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
   let manualName: string | undefined;
   let requestSequence = 0;
   let activeRequest: AbortController | undefined;
+  let earlyAttempted = false;
+  let needsRefinement = false;
 
-  const applyResult = (result: NamingResult, sequence: number): NamingResult | undefined => {
+  const applyResult = (result: NamingResult, sequence: number, provisional: boolean): NamingResult | undefined => {
     if (sequence !== requestSequence) {
       runtime.debug("skip stale naming result");
       return undefined;
@@ -68,13 +73,13 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
       runtime.debug("session name already current");
     }
 
-    runtime.appendMarker({ name, source: result.source, timestamp: now });
+    runtime.appendMarker({ name, source: result.source, timestamp: now, ...(provisional ? { provisional: true } : {}) });
     state = result.source === "ai" ? "named" : "fallback";
     lastRenameTime = now;
     return { ...result, name };
   };
 
-  const rename = async (mode: NamingMode): Promise<NamingResult | undefined> => {
+  const rename = async (mode: NamingMode, dialogue?: DialoguePart[], provisional = false): Promise<NamingResult | undefined> => {
     const config = runtime.getConfig();
     if (config.enabled === false) return undefined;
 
@@ -88,8 +93,9 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
         mode,
         currentName: normalizeName(runtime.getCurrentName()),
         signal: controller.signal,
+        ...(dialogue ? { dialogue } : {}),
       });
-      return result ? applyResult(result, sequence) : undefined;
+      return result ? applyResult(result, sequence, provisional) : undefined;
     } catch {
       if (!controller.signal.aborted) {
         runtime.debug("naming request failed");
@@ -106,6 +112,8 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
       lastGeneratedName = undefined;
       manualName = undefined;
       lastRenameTime = 0;
+      earlyAttempted = false;
+      needsRefinement = false;
 
       if (existing && marker?.name === existing) {
         lastRenameTime = marker.timestamp || runtime.now();
@@ -116,6 +124,7 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
           return;
         }
         state = marker.source === "ai" ? "named" : "fallback";
+        needsRefinement = marker.provisional === true;
         lastGeneratedName = existing;
         return;
       }
@@ -128,6 +137,12 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
       const normalized = normalizeName(name);
       if (!normalized || normalized === lastGeneratedName) return;
 
+      // An explicit rename wins over any background request already in flight.
+      requestSequence += 1;
+      activeRequest?.abort(new Error("Session renamed manually"));
+      activeRequest = undefined;
+      earlyAttempted = true;
+      needsRefinement = false;
       manualName = normalized;
       lastGeneratedName = normalized;
       lastRenameTime = runtime.now();
@@ -136,9 +151,27 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
       runtime.debug("manual session name observed");
     },
 
+    async handleResponse(dialogue) {
+      if (earlyAttempted || activeRequest || state !== "unnamed" || normalizeName(runtime.getCurrentName())) return;
+      if (runtime.getConfig().enabled === false) return;
+      if (!dialogue.some(part => part.role === "user" && part.text.trim()) ||
+          !dialogue.some(part => part.role === "assistant" && part.text.trim())) return;
+      earlyAttempted = true;
+      needsRefinement = true;
+      await rename("initial", dialogue, true);
+    },
+
     async handleSettled() {
       const config = runtime.getConfig();
       if (config.enabled === false || (config.respectManualName && manualName)) return;
+
+      if (needsRefinement) {
+        // Full task context supersedes any still-running first-pair request.
+        needsRefinement = false;
+        await rename("periodic");
+        return;
+      }
+      if (activeRequest) return;
 
       if (state === "unnamed" || state === "fallback") {
         await rename("initial");
@@ -151,6 +184,8 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
     },
 
     async renameManually() {
+      earlyAttempted = true;
+      needsRefinement = false;
       return rename("manual");
     },
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Generate an initial session name in the background from the first textual request/response pair, before long-running tools finish. Refine it once using completed-task context at settlement, then retain the normal rename cooldown. Pending refinement survives reload; manual renames cancel background naming and reject stale results.
+
 ### Added
 
 - Explicit `language` locale for AI names, with `auto` as the default and invalid locales safely returning to automatic detection. Addresses #4.

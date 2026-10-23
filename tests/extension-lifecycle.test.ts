@@ -8,7 +8,12 @@ import {
   type NamingRequest,
   type NamingResult,
 } from "../extensions/controller.ts";
-import { DEFAULT_CONFIG, type AutonameConfig } from "../extensions/lib.ts";
+import { DEFAULT_CONFIG, parseRenameMarker, type AutonameConfig, type DialoguePart } from "../extensions/lib.ts";
+
+const firstPair: DialoguePart[] = [
+  { role: "user", text: "Fix database connections" },
+  { role: "assistant", text: "Inspecting connection failures" },
+];
 
 function createRuntime(options: {
   config?: AutonameConfig;
@@ -48,6 +53,81 @@ function createRuntime(options: {
 }
 
 describe("naming lifecycle", () => {
+  it("attempts an early title once and refines it once before applying the normal cooldown", async () => {
+    const test = createRuntime({ generated: { name: "Connection repair", source: "ai" } });
+    test.controller.restore(undefined, undefined);
+    await test.controller.handleResponse(firstPair);
+    await test.controller.handleResponse(firstPair);
+    assert.equal(test.requests.length, 1);
+    assert.deepEqual(test.requests[0].dialogue, firstPair);
+    assert.deepEqual(test.markers[0], { name: "Connection repair", source: "ai", timestamp: 1_000, provisional: true });
+    await test.controller.handleSettled();
+    await test.controller.handleSettled();
+    assert.deepEqual(test.requests.map(request => request.mode), ["initial", "periodic"]);
+    assert.deepEqual(test.setNames, ["Connection repair"], "unchanged titles must not be rewritten");
+    assert.equal((test.markers.at(-1) as any).provisional, undefined);
+  });
+
+  it("restores a provisional marker without bypassing cooldown for legacy markers", async () => {
+    const test = createRuntime({ name: "Early title", generated: { name: "Settled title", source: "ai" } });
+    test.controller.restore(parseRenameMarker({ name: "Early title", source: "ai", timestamp: 1_000, provisional: true }), "Early title");
+    await test.controller.handleSettled();
+    assert.equal(test.name, "Settled title");
+    assert.deepEqual(test.requests.map(request => request.mode), ["periodic"]);
+  });
+
+  it("does not repeatedly request a title after an unsuccessful early attempt", async () => {
+    const test = createRuntime();
+    test.controller.restore(undefined, undefined);
+    await test.controller.handleResponse(firstPair);
+    await test.controller.handleResponse(firstPair);
+    assert.equal(test.requests.length, 1);
+    await test.controller.handleSettled();
+    assert.equal(test.requests.length, 2, "settlement still gets a chance with complete context");
+  });
+
+  it("deduplicates repeated settlement while refinement is pending", async () => {
+    let resolve: any;
+    let passes = 0;
+    const test = createRuntime({ generate: async () => ++passes === 1
+      ? { name: "Early title", source: "ai" }
+      : new Promise(done => { resolve = done; }) });
+    test.controller.restore(undefined, undefined);
+    await test.controller.handleResponse(firstPair);
+    const pending = test.controller.handleSettled();
+    await test.controller.handleSettled();
+    assert.equal(test.requests.length, 2);
+    resolve({ name: "Settled title", source: "ai" });
+    await pending;
+    assert.equal(test.name, "Settled title");
+  });
+
+  it("cancels early naming on a manual rename and rejects its late result", async () => {
+    for (const respectManualName of [false, true]) {
+      let resolve: any;
+      const test = createRuntime({ config: { respectManualName }, generate: () => new Promise(done => { resolve = done; }) });
+      test.controller.restore(undefined, undefined);
+      const pending = test.controller.handleResponse(firstPair);
+      test.renameExternally("My chosen title");
+      test.controller.handleSessionNameChange("My chosen title");
+      assert.equal(test.requests[0].signal.aborted, true);
+      resolve({ name: "Stale initial title", source: "ai" });
+      await pending;
+      await test.controller.handleSettled();
+      assert.equal(test.name, "My chosen title");
+      assert.equal(test.requests.length, 1, "manual naming cancels the pending settlement refinement");
+    }
+  });
+
+  it("does not refine over an explicit autoname result at settlement", async () => {
+    const test = createRuntime({ generated: { name: "Task title", source: "ai" } });
+    test.controller.restore(undefined, undefined);
+    await test.controller.handleResponse(firstPair);
+    await test.controller.renameManually();
+    await test.controller.handleSettled();
+    assert.deepEqual(test.requests.map(request => request.mode), ["initial", "manual"]);
+  });
+
   it("names a fresh session after it settles and persists an AI marker", async () => {
     const test = createRuntime({ generated: { name: "语义化标题", source: "ai" } });
     test.controller.restore(undefined, undefined);
