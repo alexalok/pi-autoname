@@ -181,6 +181,38 @@ describe("naming lifecycle", () => {
     assert.deepEqual(test.markers, [{ name: "语义化标题", source: "ai", timestamp: 1_000 }]);
   });
 
+  it("applies cooldown after a fallback refinement without skipping the one-time refinement", async () => {
+    for (const earlySource of ["ai", "fallback"] as const) {
+      let passes = 0;
+      const test = createRuntime({ generate: async () => ({ name: "Connection repair", source: ++passes === 1 ? earlySource : "fallback" }) });
+      test.controller.restore(undefined, undefined);
+      await test.controller.handleResponse(firstPair);
+      await test.controller.handleSettled();
+      assert.deepEqual(test.requests.map(request => request.mode), ["initial", "periodic"]);
+      await test.controller.handleSettled();
+      assert.equal(test.requests.length, 2);
+      assert.equal(test.markers.length, 2, "cooldown must prevent duplicate fallback markers too");
+      test.advance(10 * 60_000);
+      await test.controller.handleSettled();
+      assert.deepEqual(test.requests.map(request => request.mode), ["initial", "periodic", "periodic"]);
+    }
+  });
+
+  it("preserves fallback cooldown after initial settlement and reload", async () => {
+    const test = createRuntime({ generated: { name: "Fallback title", source: "fallback" } });
+    test.controller.restore(undefined, undefined);
+    await test.controller.handleSettled();
+    await test.controller.handleSettled();
+    assert.equal(test.requests.length, 1);
+    const restored = createRuntime({ name: test.name, generated: { name: "Recovered AI title", source: "ai" } });
+    restored.controller.restore(parseRenameMarker(test.markers.at(-1)), test.name);
+    await restored.controller.handleSettled();
+    assert.equal(restored.requests.length, 0);
+    restored.advance(10 * 60_000);
+    await restored.controller.handleSettled();
+    assert.deepEqual(restored.requests.map(request => request.mode), ["periodic"]);
+  });
+
   it("skips periodic renaming before cooldown and names after it", async () => {
     const test = createRuntime({ name: "旧标题", generated: { name: "新标题", source: "ai" } });
     test.controller.restore({ kind: "ai", name: "旧标题", source: "ai", timestamp: 1_000 }, "旧标题");

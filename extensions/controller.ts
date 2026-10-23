@@ -175,7 +175,9 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
       }
       if (activeRequest) return;
 
-      if (state === "unnamed" || state === "fallback") {
+      // Completed fallback names use the same cooldown as AI names.
+      // Provisional fallbacks already received their one-time refinement above.
+      if (state === "unnamed") {
         await rename("initial");
         return;
       }

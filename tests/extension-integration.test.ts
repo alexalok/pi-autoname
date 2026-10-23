@@ -435,6 +435,22 @@ describe("extension naming integration", () => {
     assert.equal(test.name, "回退模型命名");
   });
 
+  it("does not retry a completed fallback refinement on every settlement or reload", async t => {
+    const test = await setup(t, { complete: async () => { throw new Error("fixture failure"); } });
+    await test.response({ role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "Inspecting the database" }] });
+    assert.equal(test.markers[0].source, "fallback");
+    assert.equal(test.markers[0].provisional, true);
+    await test.settled();
+    assert.equal(test.calls.length, 2);
+    assert.equal(test.markers.at(-1).source, "fallback");
+    assert.equal(test.markers.at(-1).provisional, undefined);
+    await test.settled();
+    await test.reload();
+    await test.settled();
+    assert.equal(test.calls.length, 2, "completed fallback naming obeys the cooldown across reload");
+    assert.equal(test.markers.length, 2);
+  });
+
   it("preserves clean local fallback naming when every model fails", async t => {
     const test = await setup(t, { complete: async () => { throw new Error("fixture failure"); } });
     await test.manual();
