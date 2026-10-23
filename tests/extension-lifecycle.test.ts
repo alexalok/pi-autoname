@@ -18,6 +18,7 @@ const firstPair: DialoguePart[] = [
 function createRuntime(options: {
   config?: AutonameConfig;
   name?: string;
+  deferNameEcho?: boolean;
   generated?: NamingResult | undefined;
   generate?: (request: NamingRequest) => Promise<NamingResult | undefined>;
 } = {}) {
@@ -26,6 +27,8 @@ function createRuntime(options: {
   const markers: unknown[] = [];
   const requests: NamingRequest[] = [];
   const setNames: string[] = [];
+  const nameEchoes: string[] = [];
+  let controller: ReturnType<typeof createNamingController>;
   const runtime: NamingControllerRuntime = {
     now: () => now,
     getConfig: () => ({ ...DEFAULT_CONFIG, ...options.config }),
@@ -34,6 +37,8 @@ function createRuntime(options: {
     setSessionName: (next) => {
       name = next;
       setNames.push(next);
+      if (options.deferNameEcho) nameEchoes.push(next);
+      else controller.handleSessionNameChange(next);
     },
     generateName: async (request) => {
       requests.push(request);
@@ -41,8 +46,12 @@ function createRuntime(options: {
     },
     debug: () => {},
   };
+  controller = createNamingController(runtime);
   return {
-    controller: createNamingController(runtime),
+    controller,
+    flushNameEchoes() {
+      for (const echo of nameEchoes.splice(0)) controller.handleSessionNameChange(echo);
+    },
     requests,
     markers,
     setNames,
@@ -117,6 +126,39 @@ describe("naming lifecycle", () => {
       assert.equal(test.name, "My chosen title");
       assert.equal(test.requests.length, 1, "manual naming cancels the pending settlement refinement");
     }
+  });
+
+  it("treats a same-valued manual rename as a choice rather than another generated echo", async () => {
+    for (const respectManualName of [false, true]) {
+      const test = createRuntime({ config: { respectManualName, cooldownMinutes: 1 }, generated: { name: "Early title", source: "ai" } });
+      test.controller.restore(undefined, undefined);
+      await test.controller.handleResponse(firstPair);
+      test.controller.handleSessionNameChange("Early title");
+      assert.deepEqual(test.markers.at(-1), { event: "user_rename", name: "Early title", timestamp: 1_000 });
+      await test.controller.handleSettled();
+      assert.equal(test.requests.length, 1, "same-name /name must cancel the pending refinement");
+      test.advance(2 * 60_000);
+      await test.controller.handleSettled();
+      assert.equal(test.requests.length, respectManualName ? 1 : 2);
+    }
+  });
+
+  it("consumes delayed generated echoes without ignoring the next same-name manual event", async () => {
+    let resolveRefinement: any;
+    let passes = 0;
+    const test = createRuntime({ deferNameEcho: true, generate: async () => ++passes === 1
+      ? { name: "Early title", source: "ai" }
+      : new Promise(resolve => { resolveRefinement = resolve; }) });
+    test.controller.restore(undefined, undefined);
+    await test.controller.handleResponse(firstPair);
+    const pending = test.controller.handleSettled();
+    test.flushNameEchoes();
+    assert.equal(test.requests[1].signal.aborted, false, "a delayed generated echo is not a manual cancellation");
+    resolveRefinement({ name: "Settled title", source: "ai" });
+    await pending;
+    test.flushNameEchoes();
+    test.controller.handleSessionNameChange("Settled title");
+    assert.deepEqual(test.markers.at(-1), { event: "user_rename", name: "Settled title", timestamp: 1_000 });
   });
 
   it("does not refine over an explicit autoname result at settlement", async () => {

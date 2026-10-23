@@ -102,7 +102,10 @@ try {
   const markers = manager.getBranch().filter(entry => entry.type === "custom" && entry.customType === "pi-autoname-state");
   assert.equal(markers[0].data.provisional, true);
   assert.equal(markers.at(-1).data.provisional, undefined);
-  console.log("PASS: actual Pi AgentSession names the first request/response before a gated tool completes, then refines once at settlement (offline providers)");
+  session.setSessionName("Connection pool repair");
+  await waitFor(() => manager.getBranch().some(entry => entry.type === "custom" && entry.customType === "pi-autoname-state" && entry.data.event === "user_rename"), "same-name manual choice must be observed through Pi's real event path");
+  assert.equal(naming.state.callCount, 2);
+  console.log("PASS: actual Pi AgentSession names before a gated tool completes, refines once at settlement, and recognizes a same-name manual choice (offline providers)");
 } finally {
   session?.dispose();
   for (const [key, value] of Object.entries(oldEnvironment)) {

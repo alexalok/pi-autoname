@@ -44,7 +44,7 @@ export function normalizeName(name: string | undefined): string | undefined {
 export function createNamingController(runtime: NamingControllerRuntime): NamingController {
   let state: NamingState = "unnamed";
   let lastRenameTime = 0;
-  let lastGeneratedName: string | undefined;
+  const pendingNameEchoes: string[] = [];
   let manualName: string | undefined;
   let requestSequence = 0;
   let activeRequest: AbortController | undefined;
@@ -62,11 +62,11 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
 
     const now = runtime.now();
     const currentName = normalizeName(runtime.getCurrentName());
-    // Pi emits session_info_changed from setSessionName(). Remember ownership
-    // before writing so the event cannot be mistaken for a user rename.
-    lastGeneratedName = name;
     manualName = undefined;
     if (name !== currentName) {
+      // Consume only the event caused by this write, including delayed dispatch.
+      // A later /name with the same value is still an explicit manual choice.
+      pendingNameEchoes.push(name);
       runtime.setSessionName(name);
       runtime.debug("session name updated");
     } else {
@@ -109,7 +109,7 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
   return {
     restore(marker, existingName) {
       const existing = normalizeName(existingName);
-      lastGeneratedName = undefined;
+      pendingNameEchoes.length = 0;
       manualName = undefined;
       lastRenameTime = 0;
       earlyAttempted = false;
@@ -120,12 +120,10 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
         if (marker.kind === "user_rename") {
           state = "named";
           manualName = existing;
-          lastGeneratedName = existing;
           return;
         }
         state = marker.source === "ai" ? "named" : "fallback";
         needsRefinement = marker.provisional === true;
-        lastGeneratedName = existing;
         return;
       }
 
@@ -135,7 +133,12 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
 
     handleSessionNameChange(name) {
       const normalized = normalizeName(name);
-      if (!normalized || normalized === lastGeneratedName) return;
+      if (!normalized) return;
+      const echoIndex = pendingNameEchoes.indexOf(normalized);
+      if (echoIndex !== -1) {
+        pendingNameEchoes.splice(echoIndex, 1);
+        return;
+      }
 
       // An explicit rename wins over any background request already in flight.
       requestSequence += 1;
@@ -144,7 +147,6 @@ export function createNamingController(runtime: NamingControllerRuntime): Naming
       earlyAttempted = true;
       needsRefinement = false;
       manualName = normalized;
-      lastGeneratedName = normalized;
       lastRenameTime = runtime.now();
       state = "named";
       runtime.appendMarker({ event: "user_rename", name: normalized, timestamp: lastRenameTime });
