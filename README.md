@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <code>pi install npm:pi-autoname</code>
+  <code>pi install git:github.com/alexalok/pi-autoname</code>
 </p>
 
 ## ✨ What it does
@@ -27,7 +27,7 @@
 ## 🚀 Install
 
 ```bash
-pi install npm:pi-autoname
+pi install git:github.com/alexalok/pi-autoname
 ```
 
 **Works out of the box.** No configuration needed — uses your current session's model by default.
